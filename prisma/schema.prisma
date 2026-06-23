@@ -1,0 +1,200 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id               String      @id @default(uuid())
+  email            String      @unique
+  passwordHash     String
+  name             String
+  role             String      // "PATIENT", "DOCTOR", "CARE_TEAM", "ADMIN"
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  patientProfile   Patient?
+  providerProfile  Provider?
+  auditLogs        AuditLog[]
+  sentMessages     Message[]   @relation("SentMessages")
+  receivedMessages Message[]   @relation("ReceivedMessages")
+}
+
+model Organization {
+  id        String     @id @default(uuid())
+  name      String
+  address   String?
+  patients  Patient[]
+  providers Provider[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Patient {
+  id                   String                 @id @default(uuid())
+  userId               String                 @unique
+  user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId                String?
+  org                  Organization?          @relation(fields: [orgId], references: [id])
+  dateOfBirth          DateTime
+  phoneNumber          String?
+  emergencyContact     String?
+  chronicConditions    String                 // e.g. "Diabetes, Hypertension"
+  riskScore            Int                    @default(80) // 0-100
+  primaryProviderId    String?
+  primaryProvider      Provider?              @relation("PatientPrimaryProvider", fields: [primaryProviderId], references: [id])
+  devices              Device[]
+  vitalReadings        VitalReading[]
+  bloodPressureRecords BloodPressureRecord[]
+  glucoseRecords       GlucoseRecord[]
+  heartRateRecords     HeartRateRecord[]
+  alerts               Alert[]
+  carePlans            CarePlan[]
+  medications          Medication[]
+  reports              Report[]
+}
+
+model Provider {
+  id                 String     @id @default(uuid())
+  userId             String     @unique
+  user               User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId              String?
+  org                Organization? @relation(fields: [orgId], references: [id])
+  specialty          String     // e.g. "Cardiologist", "Endocrinologist", "Nurse Practitioner"
+  patients           Patient[]  @relation("PatientPrimaryProvider")
+  alertsAcknowledged Alert[]    @relation("AlertAcknowledger")
+  createdCarePlans   CarePlan[]
+}
+
+model Device {
+  id           String    @id @default(uuid())
+  patientId    String
+  patient      Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  name         String    // e.g. "Apple Watch Series 9", "Dexcom G6", "Omron 5 Series"
+  type         String    // e.g. "WEARABLE", "GLUCOMETER", "BP_MONITOR"
+  serialNumber String
+  status       String    // "CONNECTED", "DISCONNECTED", "PAIRED"
+  lastSyncedAt DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+model VitalReading {
+  id         String   @id @default(uuid())
+  patientId  String
+  patient    Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  type       String   // "BLOOD_PRESSURE", "GLUCOSE", "HEART_RATE"
+  timestamp  DateTime @default(now())
+  valueJson  String   // Stringified JSON, e.g. '{"systolic": 120, "diastolic": 80}' or '{"glucose": 110, "isFasting": true}'
+  isAbnormal Boolean  @default(false)
+}
+
+model BloodPressureRecord {
+  id        String   @id @default(uuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  systolic  Int
+  diastolic Int
+  heartRate Int?
+  notes     String?
+  timestamp DateTime @default(now())
+}
+
+model GlucoseRecord {
+  id        String   @id @default(uuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  value     Int      // mg/dL
+  isFasting Boolean  @default(true)
+  mealPhase String?  // "BEFORE_MEAL", "AFTER_MEAL", "OTHER"
+  notes     String?
+  timestamp DateTime @default(now())
+}
+
+model HeartRateRecord {
+  id        String   @id @default(uuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  bpm       Int
+  type      String   // "RESTING", "ACTIVE", "SLEEP"
+  notes     String?
+  timestamp DateTime @default(now())
+}
+
+model Alert {
+  id               String    @id @default(uuid())
+  patientId        String
+  patient          Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  type             String    // "CRITICAL_BP", "HIGH_GLUCOSE", "LOW_GLUCOSE", "ABNORMAL_HR"
+  message          String
+  severity         String    // "CRITICAL", "WARNING", "INFO"
+  status           String    // "ACTIVE", "ACKNOWLEDGED", "RESOLVED"
+  createdAt        DateTime  @default(now())
+  acknowledgedById String?
+  acknowledgedBy   Provider? @relation("AlertAcknowledger", fields: [acknowledgedById], references: [id])
+  acknowledgedAt   DateTime?
+  resolutionNotes  String?
+}
+
+model CarePlan {
+  id           String    @id @default(uuid())
+  patientId    String
+  patient      Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  creatorId    String
+  creator      Provider  @relation(fields: [creatorId], references: [id])
+  title        String    // e.g. "Hypertension Management Plan"
+  goal         String
+  instructions String
+  startDate    DateTime  @default(now())
+  endDate      DateTime?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Medication {
+  id           String    @id @default(uuid())
+  patientId    String
+  patient      Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  name         String    // e.g. "Lisinopril"
+  dosage       String    // e.g. "10mg"
+  frequency    String    // e.g. "Once Daily"
+  instructions String?   // e.g. "Take in the morning with food"
+  scheduleTime String    // e.g. "08:00 AM"
+  lastTakenAt  DateTime?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  senderId       String
+  sender         User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId     String
+  receiver       User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  content        String
+  attachmentsJson String?  // Optional attachments
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+}
+
+model Report {
+  id          String   @id @default(uuid())
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  type        String   // "MONTHLY_SUMMARY", "COMPLIANCE_REPORT", "AI_ANALYTICS"
+  content     String   // Markdown report contents
+  generatedAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String   // e.g. "VIEW_PATIENT_RECORD", "LOG_VITALS", "ACKNOWLEDGE_ALERT"
+  resource  String   // e.g. "Patient 8a7d-..."
+  details   String?  // Additional context
+  ipAddress String?
+  timestamp DateTime @default(now())
+}
